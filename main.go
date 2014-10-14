@@ -197,7 +197,7 @@ func (a *Arena) Parse(author, input string) string {
 		}
 		target, ok := a.Players[targets[0]]
 		if ok == false {
-			return fmt.Sprintf("%s not in arena", author)
+			return fmt.Sprintf("%s not in arena", targets[0])
 		}
 		return player.Attack(target)
 	case "status":

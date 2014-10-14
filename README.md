@@ -1,4 +1,4 @@
 RPGMutantes
 ===========
 
-#mutant3s rpg bot
+\#mutant3s rpg bot
