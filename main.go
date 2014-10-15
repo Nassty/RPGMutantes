@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"strings"
+	"time"
 
 	irc "github.com/thoj/go-ircevent"
 )
@@ -64,23 +65,25 @@ func (i *Item) String() string {
 }
 
 type Player struct {
-	Name  string
-	AP    *Property
-	XP    float64
-	HP    *Property
-	AT    int
-	Level int
-	Items []*Item
+	Name    string
+	AP      *Property
+	XP      float64
+	HP      *Property
+	AT      int
+	Level   int
+	Items   []*Item
+	Actions int
 }
 
 func NewPlayer(name string, ap, hp, at int) *Player {
 	return &Player{
-		Name:  name,
-		AP:    &Property{Name: "AP", Current: ap, Max: ap},
-		XP:    0,
-		HP:    &Property{Name: "HP", Current: hp, Max: hp},
-		AT:    at,
-		Level: 1,
+		Name:    name,
+		AP:      &Property{Name: "AP", Current: ap, Max: ap},
+		XP:      0,
+		HP:      &Property{Name: "HP", Current: hp, Max: hp},
+		AT:      at,
+		Level:   1,
+		Actions: 5,
 	}
 }
 
@@ -106,9 +109,15 @@ func (current *Player) IncreaseXP(by int) (float64, bool) {
 		current.HP.Current = current.HP.Max
 		current.AP.Max += rand.Intn(5 * next_level)
 		current.AP.Current = current.AP.Max
+		current.AT *= 2
 	}
 	current.Level = next_level
 	return increased, level_up
+}
+func (current *Player) Replenish() {
+	current.HP.Current = current.HP.Max
+	current.AP.Current = current.AP.Max
+	current.Actions = 5
 }
 
 func (current *Player) Attack(target *Player) string {
@@ -116,11 +125,15 @@ func (current *Player) Attack(target *Player) string {
 	msg := "[Attack] %s hits %s for %d points "
 
 	if current.HP.Current <= 0 {
-		return fmt.Sprintf("%s has no HP, cannot attack", current.Name)
+		return fmt.Sprintf("%s is unconscious!", current.Name)
 	}
 	if target.HP.Current <= 0 {
-		return fmt.Sprintf("%s has no HP, cannot be attacked", target.Name)
+		return fmt.Sprintf("%s is unconscious!", target.Name)
 	}
+	if current.Actions <= 0 {
+		return fmt.Sprintf("%s is tired, has to rest for a bit", current.Name)
+	}
+	current.Actions -= 1
 
 	modifiers := 0
 	if current.Items != nil {
@@ -206,14 +219,23 @@ func (a *Arena) Parse(author, input string) string {
 			return fmt.Sprintf("%s not in arena, please use the JOIN command first", author)
 		}
 		return player.String()
+	case "who":
+		var output []string
+		for player := range a.Players {
+			output = append(output, player)
+		}
+		if output != nil {
+			return strings.Join(output, ",")
+		}
+		return "nobody ¯\\(°_o)/¯ "
 
 	}
-	return action
+	return fmt.Sprintf("I don't understand what '%s' means", input)
 }
 
 func main() {
 	arena := NewArena()
-	items := [...]string{"banana", "sword", "pineaple", "katana"}
+	items := [...]string{"banana", "sword", "pineapple", "katana"}
 	for _, item := range items {
 		arena.AddItem(NewItem(item, "a", rand.Intn(3)+1))
 	}
@@ -231,5 +253,38 @@ func main() {
 	con.AddCallback("CTCP_ACTION", func(e *irc.Event) {
 		con.Action(roomName, arena.Parse(e.Nick, e.Message()))
 	})
+
+	go func() {
+		for {
+			<-time.After(time.Minute * 1)
+			var alive []string
+			var unconscious []string
+			for _, player := range arena.Players {
+				if player.HP.Current <= 0 {
+					unconscious = append(unconscious, player.Name)
+				} else {
+					alive = append(alive, player.Name)
+				}
+				player.Replenish()
+			}
+			con.Action(roomName, "Round is over!")
+			if alive != nil {
+				con.Action(roomName, fmt.Sprintf("Players Alive: %s", strings.Join(alive, ",")))
+			}
+			if unconscious != nil {
+				con.Action(roomName, fmt.Sprintf("Players Unconscious: %s", strings.Join(unconscious, ",")))
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			<-time.After(time.Second * 20)
+			for _, player := range arena.Players {
+				player.Actions = 5
+			}
+		}
+	}()
+
 	con.Loop()
 }
